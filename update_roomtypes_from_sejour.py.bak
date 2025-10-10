@@ -1,0 +1,231 @@
+
+import pandas as pd
+import pyodbc 
+import json
+import imaplib
+import base64
+import os
+import email
+import datetime
+from email.header import decode_header
+from email.message import EmailMessage
+from win32com import client as wc
+import re
+import base64
+import quopri
+from  os.path import splitext
+import io
+import csv
+import sys
+import docx2txt
+import codecs
+import win32com.client
+import docx
+import PyPDF2
+import pikepdf
+import chardet    
+import subprocess
+import traceback
+
+
+# Sejour - Database
+#  "Data Source=77.85.202.44;Initial Catalog=ALBENASEJOUR;User ID=sa;Password=tDR*WXB9'K\Nl+T?!=I&46yk"
+SconnStr = "Driver={SQL Server Native Client 11.0};Server=77.85.202.44;Database=ALBENASEJOUR;UID=sa;PWD=tDR*WXB9'K\\Nl+T?!=I&46yk"
+Sconn = pyodbc.connect(SconnStr)
+Scursor = Sconn.cursor()
+
+# Parsing - Database
+#  "Data Source=HOTELAGENT\SQLexpress;Initial Catalog=Parsing;User ID=onlineParsingMachime;Password=12A-dd7e34%3482*dwk^hoeDif-su2112@41!1G+Gjudu#643Edf"
+PconnStr = "Driver={SQL Server Native Client 11.0};Server=HOTELAGENT\SQLEXPRESS;Database=Shuttle;UID=onlineParsingMachime;PWD=12A-dd7e34%3482*dwk^hoeDif-su2112@41!1G+Gjudu#643Edf"
+Pconn = pyodbc.connect(PconnStr)
+Pcursor = Pconn.cursor()
+
+
+########################################## Odafiy_Roomtype
+Pcursor.execute('''
+    delete from  Odafiy_Roomtype
+'''  )
+Pcursor.commit()
+Scursor.execute('''
+    select t.Turop, t.FiyTuru,t.Otel,null room_code
+    , t.Oda+' # '+t.OdaTip + ' #' + o.Tanim +'#'+ p.Tanim room_type
+    from Odafiy t
+    left join oda o on o.Oda=t.oda
+    left join Odatip p on p.OTip=t.OdaTip
+    where t.Sezno='S22'
+    group by t.Turop,t.Otel, t.Oda,t.OdaTip, t.FiyTuru
+    ,o.Tanim, p.Tanim
+    order by t.Turop,t.Otel, t.Oda,t.OdaTip, t.FiyTuru 
+''' )
+Srows = Scursor.fetchall()
+for row in Srows:
+
+    Pcursor.execute('''
+        insert Odafiy_Roomtype(Turop,FiyTuru,Otel,room_code,room_type)
+        select ?,?,?,?,?
+    ''' , row.Turop,row.FiyTuru,row.Otel,row.room_code,row.room_type )
+    Pcursor.commit()
+
+########################################## Odafiy_Board
+Pcursor.execute('''
+    delete from  Odafiy_Board
+'''  )
+Pcursor.commit()
+Scursor.execute('''
+    select t.Turop, t.Otel, t.pans +'#'+ p.Tanim board
+	from Odafiy t
+	left join Pansiyon p on p.Kodu=t.Pans
+	where t.Sezno='S22'
+	group by t.Turop,t.Otel, t.pans, p.Tanim
+	order by t.Turop,t.Otel, t.pans
+''' )
+Srows = Scursor.fetchall()
+for row in Srows:
+
+    Pcursor.execute('''
+        insert Odafiy_Board(Turop,Otel,board)
+        select ?,?,?
+    ''' , row.Turop,row.Otel,row.board )
+    Pcursor.commit()
+
+########################################## Otel
+Pcursor.execute('''
+    delete from  [Shuttle].[dbo].Otel
+'''  )
+Pcursor.commit()
+Scursor.execute('''
+    select Otel, Adi  from Otel
+	where Adi is not null
+    group by Otel, Adi
+''' )
+Srows = Scursor.fetchall()
+for row in Srows:
+
+    Pcursor.execute('''
+        insert [Shuttle].[dbo].Otel(Otel, Adi)
+        select ?,?
+    ''' , row.Otel, row.Adi )
+    Pcursor.commit()
+
+####################################################################################
+####################################################################################
+
+########################################## Otel, ParamID=1
+Pcursor.execute('''
+     insert into Parsing.dbo.[CL_ParamValues](
+[PMS_ServerID],[ParamID],[CL_ID_HOTEL],[CL_ID],[CL_DESCRIPTION],[CL_IsActive]
+)
+  select 10, 1, -1, x.PMS_HotelID, Otel+'#'+Adi ,1
+  from
+(SELECT [Otel],Adi,h.PMS_HotelID FROM [Shuttle].[dbo].[Otel] o
+join Parsing.dbo.PMS_Hotels h on h.Code=o.[Otel] and PMS_ServerID=10
+) x  
+left join (
+  SELECT code, [CL_DESCRIPTION]
+  FROM Parsing.dbo.[CL_ParamValues] v
+  left join Parsing.dbo.PMS_Hotels h on h.PMS_HotelID=v.CL_ID
+  where v.[PMS_ServerID]=10 and v.ParamID=1
+  and [CL_IsActive] = 1
+  group by code ,CL_DESCRIPTION
+) y on x.Otel collate SQL_Latin1_General_CP1_CI_AS =y.Code
+ where CL_DESCRIPTION is null or  Otel+'#'+Adi <>CL_DESCRIPTION
+
+'''  )
+Pcursor.commit()
+
+
+########################################## Odafiy_Roomtype, ParamID=4
+
+
+Pcursor.execute('''
+     select max(CL_ID) max_CL_ID from Parsing.dbo.CL_ParamValues
+ where PMS_ServerID=10 and ParamID=4
+''' )
+Prows = Pcursor.fetchall()
+max_CL_ID = Prows[0].max_CL_ID
+Pcursor.commit()
+
+Qconn = pyodbc.connect(PconnStr)
+Qcursor = Qconn.cursor()
+
+
+Pcursor.execute('''
+select  h.PMS_HotelID, x.room_type
+from (  SELECT [Otel],[room_type]
+  FROM [Shuttle].[dbo].[Odafiy_Roomtype]
+  group by [Otel] ,[room_type]
+) x 
+join Parsing.dbo.PMS_Hotels h on h.Code=x.Otel 
+collate SQL_Latin1_General_CP1_CI_AS and h.[PMS_ServerID]=10 
+left join (
+ SELECT h.code
+,[CL_DESCRIPTION]
+  FROM [Parsing].[dbo].[CL_ParamValues] v
+  left join Parsing.dbo.PMS_Hotels h on h.PMS_HotelID=v.CL_ID_HOTEL
+  where v.[PMS_ServerID]=10 and v.ParamID=4
+  and [CL_IsActive] = 1
+  group by code ,CL_DESCRIPTION
+  ) y on x.Otel collate SQL_Latin1_General_CP1_CI_AS =y.Code
+  and x.room_type collate SQL_Latin1_General_CP1_CI_AS=y.CL_DESCRIPTION
+where y.CL_DESCRIPTION is null
+order by x.Otel, x.room_type
+''' )
+Prows = Pcursor.fetchall()
+for prow in Prows:
+    max_CL_ID = max_CL_ID + 1
+    Qcursor.execute('''
+    insert into Parsing.dbo.[CL_ParamValues](
+    [PMS_ServerID],[ParamID],[CL_ID_HOTEL],[CL_ID],[CL_DESCRIPTION],[CL_IsActive]
+    ) select 10,4,?,?,?,1
+    ''' , prow.PMS_HotelID, max_CL_ID, prow.room_type)
+    Qcursor.commit()
+
+Pcursor.commit()
+
+########################################## Odafiy_Board, ParamID=5
+
+
+Pcursor.execute('''
+     select max(CL_ID) max_CL_ID from Parsing.dbo.CL_ParamValues
+ where PMS_ServerID=10 and ParamID=5
+''' )
+Prows = Pcursor.fetchall()
+max_CL_ID = Prows[0].max_CL_ID
+Pcursor.commit()
+
+Qconn = pyodbc.connect(PconnStr)
+Qcursor = Qconn.cursor()
+
+
+Pcursor.execute('''
+select  h.PMS_HotelID, x.board
+from (  SELECT [Otel],[board]
+  FROM [Shuttle].[dbo].[Odafiy_Board]
+  group by [Otel] ,[board]
+) x 
+join Parsing.dbo.PMS_Hotels h on h.Code=x.Otel 
+collate SQL_Latin1_General_CP1_CI_AS and h.[PMS_ServerID]=10 
+left join (
+ SELECT h.code
+,[CL_DESCRIPTION]
+  FROM [Parsing].[dbo].[CL_ParamValues] v
+  left join Parsing.dbo.PMS_Hotels h on h.PMS_HotelID=v.CL_ID_HOTEL
+  where v.[PMS_ServerID]=10 and v.ParamID=5
+  and [CL_IsActive] = 1
+  group by code ,CL_DESCRIPTION
+  ) y on x.Otel collate SQL_Latin1_General_CP1_CI_AS =y.Code
+  and x.board collate SQL_Latin1_General_CP1_CI_AS=y.CL_DESCRIPTION
+where y.CL_DESCRIPTION is null
+order by x.Otel, x.board
+''' )
+Prows = Pcursor.fetchall()
+for prow in Prows:
+    max_CL_ID = max_CL_ID + 1
+    Qcursor.execute('''
+    insert into Parsing.dbo.[CL_ParamValues](
+    [PMS_ServerID],[ParamID],[CL_ID_HOTEL],[CL_ID],[CL_DESCRIPTION],[CL_IsActive]
+    ) select 10,5,?,?,?,1
+    ''' , prow.PMS_HotelID, max_CL_ID, prow.board)
+    Qcursor.commit()
+
+Pcursor.commit()

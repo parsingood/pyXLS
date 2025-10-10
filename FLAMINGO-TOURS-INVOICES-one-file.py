@@ -1,0 +1,194 @@
+import email, smtplib, ssl
+import os
+import re
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import datetime 
+import cx_Oracle
+
+subject = "Invoices at " + datetime.datetime.now().strftime("%A, %d.%m.%Y %X")
+body = "Invoices daily report"
+
+receiver_email = ["info@flamingotours.de","ivanm@albena.bg"]
+to_email = "info@flamingotours.de"
+path = "C:/Temp/Flam/"
+mailserver = "smtp.gmail.com"
+sender_email = "ivanm.albena@gmail.com"
+password = "mzlqlnrrpjtasxra"
+
+
+
+
+print('Started at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
+
+cx_Oracle.init_oracle_client(lib_dir = r"C:\app\instantclient_19_19")
+dsn_tns = cx_Oracle.makedsn('10.10.21.33', '1521', service_name='OPERA') # if needed, place an 'r' before any parameter in order to address special characters such as '\'.
+conn = cx_Oracle.connect(user=r'OPERA', password='opera', dsn=dsn_tns) # if needed, place an 'r' before any parameter in order to address special characters such as '\'. For example, if your user name contains '\', you'll need to place 'r' before the user name: user=r'User Name'
+
+today = datetime.date.today()
+TODAY_STR = today.strftime("%d.%m.%Y")
+
+
+
+# one time each week genertateing last week report
+#LastWeekMonday = today + datetime.timedelta(days=-today.weekday(), weeks=-1)  
+#LastWeekSunday = today + datetime.timedelta(days=-today.weekday(), weeks=-1)+datetime.timedelta(days=6)  #
+
+# for all summer till today
+LastWeekMonday = today - datetime.timedelta(310)  
+LastWeekSunday = today 
+
+# yesterday = today - datetime.timedelta(2)
+# THEDATE = yesterday.strftime("%d.%m.%Y")
+# THEDATE_SHORT = yesterday.strftime("%d.%m.%y")
+
+DATEFROM =  LastWeekMonday.strftime("%d.%m.%Y") #yesterday.strftime("%d.%m.%Y")
+DATETILL =  LastWeekSunday.strftime("%d.%m.%Y") #today.strftime("%d.%m.%Y")
+
+
+HOTELS = '''
+'DDJ', 'GER', 'MRA', 'SLA', 'ELI', 
+'NON', 'BOR', 'LAB', 'LAM', 'LAG', 
+'KLP', 'ARB', 'KLK', 'DTC', 'ORL', 
+'MAL', 'DOR', 'DRU', 'OAS', 'FLG', 
+'FLA', 'OR1', 'OR2', 'MAG', 'SUP', 
+'RAL', 'VIT', 'KOM', 'ALT', 'KPS', 
+'PAN', 'VMG'
+'''
+PAYEE_NAME_ID = '8823810'
+sql='''
+select bill_no c0,   ';' || gen || ';' || hotel || ';' || voucher || ';;' 
+       || arr || ';' || dep || ';' || names || ';' ||  pax || ';'    c1,
+sum(gross) c2,
+startdate || '_' || hotel || '_' || to_char(bill_no) c3,
+WBS_CODE || ';' ||  KONTO || ';'   c4
+from (   
+     SELECT F.bill_no,
+     to_CHAR(F.BILL_GENERATION_DATE,'DD/MM/YYYY') gen, 
+     H.SEASON2 hotel,  B.WBS_CODE, B.KONTO,
+     rn.CUSTOM_REFERENCE voucher,
+     to_CHAR(RN.TRUNC_BEGIN_DATE,'DD.MM.YY') startdate, 
+     to_CHAR(RN.TRUNC_BEGIN_DATE,'DD/MM/YYYY') ARR, 
+     to_CHAR(RN.TRUNC_END_DATE,'DD/MM/YYYY') DEP, 
+     n.first || ' ' || n.last names,  
+     max(en.ADULTS)+max(en.CHILDREN) pax,     
+     ROUND(sum( gross_amount)/1.95583,2) gross
+     FROM OPERA.FOLIO$_TAX F
+    JOIN OPERA.NAME S ON S.NAME_ID=F.PAYEE_NAME_ID
+    join  financial_transactions ft on f.resort = ft.resort and f.bill_no = ft.bill_no 
+     left join TRAIN.ALB_BLANK_HOTELS B ON B.RESORT = ft.RESORT
+     left join reservation_name rn on rn.RESV_NAME_ID = ft.ORIGINAL_RESV_NAME_ID  
+     left join RESERVATION_DAILY_ELEMENT_NAME en    
+      on en.RESV_NAME_ID = rn.RESV_NAME_ID  and en.resort = rn.resort   
+      and en.RESERVATION_DATE = rn.TRUNC_BEGIN_DATE  
+     join name n on rn.NAME_ID = n.NAME_ID    
+      left JOIN OPERA.RESORT H ON H.RESORT = SUBSTR(en.RATE_CODE,6,3)
+     WHERE ft.gross_amount is not null
+     and f.PAYEE_NAME_ID = ''' + PAYEE_NAME_ID + ''' 
+     and f.resort in (''' + HOTELS + ''')
+     AND F.BILL_GENERATION_DATE BETWEEN TO_DATE(\'''' + DATEFROM + '''\','DD.MM.YYYY') AND TO_DATE(\'''' + DATETILL + '''\','DD.MM.YYYY')
+      group by  F.bill_no, 
+     F.BILL_GENERATION_DATE,
+     H.SEASON2,   
+     rn.CUSTOM_REFERENCE,
+    RN.TRUNC_BEGIN_DATE, 
+    RN.TRUNC_END_DATE, 
+     n.first , n.last,
+	 KONTO, WBS_CODE
+) x
+GROUP BY bill_no,gen,hotel,voucher,arr,dep,names, pax, startdate, KONTO, WBS_CODE
+ORDER BY bill_no,gen,hotel,voucher,arr,dep,names, pax
+
+'''
+# --    and f.bill_no in ( 5117008957 ) 
+
+#  left JOIN RESORT H ON H.RESORT =  FT.RESORT
+
+
+current_time = datetime.datetime.now()
+#today = datetime.date.today()
+dt_string = current_time.strftime("%Y-%m-%d-%H-%M-%S")
+
+c = conn.cursor()
+c.execute(sql)
+
+#myfile = "path/test.xml"
+#with open(myfile, "r+") as f:
+#    data = f.read()
+#    f.seek(0)
+#    f.write(re.sub(r"<string>ABC</string>(\s+)<string>(.*)</string>", r"<xyz>ABC</xyz>\1<xyz>\2</xyz>", data))
+#    f.truncate()
+
+
+bill_no = ''
+total = 0
+f = open(path + "inv-"+DATEFROM+"-"+DATETILL+".txt", "w")
+
+
+NotFirst = False
+for row in c:
+    
+    if row[0] != bill_no:
+        if NotFirst :
+           f.write(';;;;;;;;;' + str(total).replace('.',',') + ';;^M\n')
+        else:
+           NotFirst = True
+#        f.close()     
+        bill_no = row[0]
+        filename = row[3]
+#       filename = str(bill_no)
+#        f = open(path + filename + '.txt', "w")
+        total = 0
+
+    f.write( str(row[0])+row[1]+ str(row[2]).replace('.',',')+';'+ str(row[2]).replace('.',',')+';EUR;'+row[4]+'^M\n')
+    total=total + row[2]
+	
+f.write(';;;;;;;;;' + str(total).replace('.',',') + ';;^M\n')
+f.close()
+
+
+print('TXTs generated at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
+
+# Create a multipart message and set headers
+message = MIMEMultipart()
+message["From"] = sender_email
+message["To"] = to_email
+message["Subject"] = subject
+message.attach(MIMEText(body, "plain"))
+all_files = os.listdir(path) 
+files = [f for f in all_files if re.match(r'.*\.txt', f)]
+for filename in files:
+    if filename!='zerro.txt':
+        with open(path + filename, "rb") as attachment:
+            # Add file as application/octet-stream
+            # Email client can usually download this automatically as attachment
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(attachment.read())
+        # Encode file in ASCII characters to send by email    
+        encoders.encode_base64(part)
+        # Add header as key/value pair to attachment part
+        part.add_header(
+            "Content-Disposition",
+            f"attachment; filename= {filename}",
+        )
+        # Add attachment to message and convert message to string
+        message.attach(part)
+    os.remove(path + filename)
+
+text = message.as_string()
+# Log in to server 
+print('Sending email at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
+
+with smtplib.SMTP_SSL(mailserver, 465) as server:
+    server.login(sender_email, password)
+    server.sendmail(sender_email, receiver_email, text)
+
+
+print('Finished at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
+
+
+
+
+

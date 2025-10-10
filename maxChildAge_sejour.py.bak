@@ -1,0 +1,93 @@
+
+import pandas as pd
+import pyodbc 
+import json
+import imaplib
+import base64
+import os
+import email
+import datetime
+from email.header import decode_header
+from email.message import EmailMessage
+from win32com import client as wc
+import re
+import base64
+import quopri
+from  os.path import splitext
+import io
+import csv
+import sys
+import docx2txt
+import codecs
+import win32com.client
+import docx
+import PyPDF2
+import pikepdf
+import chardet    
+import subprocess
+import traceback
+import cx_Oracle
+
+# Sejour - Database
+#  "Data Source=77.85.202.44;Initial Catalog=ALBENASEJOUR;User ID=sa;Password=tDR*WXB9'K\Nl+T?!=I&46yk"
+SconnStr = "Driver={SQL Server Native Client 11.0};Server=77.85.202.44;Database=ALBENASEJOUR;UID=sa;PWD=tDR*WXB9'K\\Nl+T?!=I&46yk"
+Sconn = pyodbc.connect(SconnStr)
+Scursor = Sconn.cursor()
+
+# Parsing - Database
+#  "Data Source=HOTELAGENT\SQLexpress;Initial Catalog=Parsing;User ID=onlineParsingMachime;Password=12A-dd7e34%3482*dwk^hoeDif-su2112@41!1G+Gjudu#643Edf"
+PconnStr = "Driver={SQL Server Native Client 11.0};Server=HOTELAGENT\SQLEXPRESS;Database=Shuttle;UID=onlineParsingMachime;PWD=12A-dd7e34%3482*dwk^hoeDif-su2112@41!1G+Gjudu#643Edf"
+Pconn = pyodbc.connect(PconnStr)
+Pcursor = Pconn.cursor()
+
+########################################## 
+Pcursor.execute('''
+    delete from  maxChildAge
+'''  )
+Pcursor.commit()
+
+#SELECT T.Turop, Y.OTEL, max(Y.C1Yas2) maxChildAge
+#FROM [ALBENASEJOUR].[dbo].[AksTurop] T
+#JOIN [ALBENASEJOUR].[dbo].[AksCocDty]  Y 
+#ON T.Otel=Y.Otel
+#AND T.[AksNo]=Y.[AksNo]
+#group BY T.Turop,Y.OTEL
+#ORDER BY T.Turop,Y.OTEL
+
+Scursor.execute('''
+
+select turop Turop, otel OTEL, max(c.C1Yas2) maxChildAge
+from  Cocuka2d c
+where  c.Sezno >= 'S22'
+group by Sezno, turop,otel
+order by Sezno, turop,otel
+
+''' )
+Srows = Scursor.fetchall()
+for row in Srows:
+
+    Pcursor.execute('''
+	insert maxChildAge(Turop, OTEL, maxChildAge)
+	select ?,?,?
+    ''' 
+    , row.Turop,row.OTEL,row.maxChildAge )
+    Pcursor.commit()
+
+########################################## 
+
+MconnStr = "Driver={SQL Server Native Client 11.0};Server=HOTELAGENT\SQLEXPRESS;Database=MappingSJ;UID=onlineParsingMachime;PWD=12A-dd7e34%3482*dwk^hoeDif-su2112@41!1G+Gjudu#643Edf"
+Mconn = pyodbc.connect(MconnStr)
+Mcursor = Mconn.cursor()
+Mcursor.execute('''
+delete from m012
+'''  )
+Mcursor.commit()
+Mcursor.execute('''
+insert into M012(c01,c02,r01,r02)
+select x.Turop, x.OTEL+'#'+h.Adi, x.maxChildAge, 1 
+from shuttle.dbo.maxChildAge x
+join shuttle.dbo.Otel h on h.Otel=x.OTEL
+'''  )
+Mcursor.commit()
+
+########################################## 

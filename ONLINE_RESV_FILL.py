@@ -1,0 +1,237 @@
+import email, smtplib, ssl
+import os
+import re
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import datetime 
+import cx_Oracle
+
+subject = "Invoices at " + datetime.datetime.now().strftime("%A, %d.%m.%Y %X")
+body = "Invoices daily report"
+sender_email = "ivanm@albena.bg"
+receiver_email = ["info@flamingotours.de","ivanm@albena.bg"]
+to_email = "info@flamingotours.de"
+#receiver_email = "reservations@albena.bg"
+#password = ""
+mailserver = "mail.albena.bg"
+#directory = "C:/test/"
+path = "C:/Temp/Flam/"
+
+
+print('Started at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
+
+cx_Oracle.init_oracle_client(lib_dir = r"C:\app\instantclient_19_19")
+dsn_tns = cx_Oracle.makedsn('10.10.21.33', '1521', service_name='OPERA') # if needed, place an 'r' before any parameter in order to address special characters such as '\'.
+conn = cx_Oracle.connect(user=r'OPERA', password='opera', dsn=dsn_tns) # if needed, place an 'r' before any parameter in order to address special characters such as '\'. For example, if your user name contains '\', you'll need to place 'r' before the user name: user=r'User Name'
+
+today = datetime.date.today()
+TODAY_STR = today.strftime("%d.%m.%Y")
+
+now = datetime.datetime.now()
+UPDATETIME = now.strftime("%d.%m.%Y %H:%M:%S")
+
+yesterday = today - datetime.timedelta(3)
+THEDATE = yesterday.strftime("%d.%m.%Y")
+THEDATE_SHORT = yesterday.strftime("%d.%m.%y")
+
+DATEFROM =  yesterday.strftime("%d.%m.%Y")
+DATETILL =  today.strftime("%d.%m.%Y")
+
+
+HOTELS = (
+'DDJ', 'GER', 'MRA', 'SLA', 'ELI', 
+'NON', 'BOR', 'LAB', 'LAM', 'LAG', 
+'KLP', 'ARB', 'KLK', 'DTC', 'ORL', 
+'MAL', 'DRU', 'MGG', 'DOR', 'OAS', 
+'FLG', 'FLA', 'OR1', 'OR2', 'MAG', 
+'SUP', 'RAL', 'VIT', 'KOM', 'ALT', 
+'KPS', 'PAN', 'VMG', 'GOR'
+)
+
+sql='''
+INSERT INTO TRAIN.ALB_ONLINE
+(
+RESV_STATUS,RESORT,RT,RTC,CONFIRM_NO,CO,
+ROOM_PRICE,AMOUNT_BGN,FOL_BGN,BILL_BGN,BILLADV_BGN,BILLEX_BGN,DEP_BGN,CUSTOM_REFERENCE,
+RMS,AD,CH,OVNTS,OVNTS_CH,RATE_CODE,NTS,ARRIVAL,DEPARTURE,LAST_NAME,FIRST_NAME,ROOM,MARKET,LAST_CHKD,ORIG,SOURCE_NAME,
+DISCOUNT_AMT,DISCOUNT_PRCNT,DISCOUNT_REASON_CODE,INSERT_DATE,APP_USER,BOOK_DATE,UPDATE_DATE,CANCEL_DATE,GUARANTEE_CODE,ML_B,ML_L,ML_D,AGENT,
+RESV_NAME_ID,RES_DT,FIX,C1,C2,C3,C4,C5,UPDATETIME
+)
+
+SELECT  R.RESV_STATUS, R.RESORT, RT.LABEL RT, RTC.LABEL RTC 
+, R.CONFIRMATION_NO CONFIRM_NO
+, UPPER(A.COUNTRY) CO 
+, TRAIN.ALB_GET_RES_PR(R.RESORT,R.RESV_NAME_ID) ROOM_PRICE
+ , TRAIN.ALB_GET_RES_AMNT(R.RESORT,R.RESV_NAME_ID) AMOUNT_BGN
+ , ROUND(TRAIN.ALB_GET_RES_FOLIO(R.RESORT,R.RESV_NAME_ID),2) FOL_BGN
+ , ROUND(TRAIN.ALB_GET_RES_BILL(R.RESORT,R.RESV_NAME_ID),2) BILL_BGN
+ , 0 BILLadv_BGN
+ , 0 BILLex_BGN
+ , 0 DEP_BGN
+, R.CUSTOM_REFERENCE CUSTOM_REFERENCE
+ , E.PHYSICAL_QUANTITY RMS, EN.ADULTS AD, EN.CHILDREN CH
+ , (EN.ADULTS + EN.CHILDREN) * (R.TRUNC_END_DATE-R.TRUNC_BEGIN_DATE) OVNTS 
+ , ( EN.CHILDREN) * (R.TRUNC_END_DATE-R.TRUNC_BEGIN_DATE) OVNTS_CH 
+ , EN.RATE_CODE 
+ , R.TRUNC_END_DATE-R.TRUNC_BEGIN_DATE NTS 
+ , TO_CHAR(R.TRUNC_BEGIN_DATE,'DD.MM.YYYY') ARRIVAL, TO_CHAR(R.TRUNC_END_DATE,'DD.MM.YYYY') DEPARTURE 
+ , NVL(TRANSLATE(N.LAST ,'&|''"','^#^'),'???????') LAST_NAME
+ , NVL(TRANSLATE(N.FIRST,'&|''"','^#^'),'???????') FIRST_NAME
+ , E.ROOM 
+ , SO.UDFC22 MARKET, TO_CHAR(R.UDFD07,'DD.MM.YY HH24:MI:SS') LAST_CHKD
+ , SUBSTR(EN.RATE_CODE,6,3) ORIG
+ , NVL(RTRIM( TRANSLATE(SO.COMPANY,'&|''"','^#^') ),'???????') SOURCE_NAME
+      , R.DISCOUNT_AMT 
+      , R.DISCOUNT_PRCNT
+      , NVL(EN.DISCOUNT_REASON_CODE,R.DISCOUNT_REASON_CODE) DISCOUNT_REASON_CODE
+      , TO_CHAR(R.INSERT_DATE,'DD.MM.YYYY HH24:MI:SS') INSERT_DATE,U.APP_USER
+      , TO_CHAR(nvl(R.UDFD15, R.INSERT_DATE),'DD.MM.YYYY') BOOK_DATE 
+      , TO_CHAR(R.UPDATE_DATE,'DD.MM.YYYY HH24:MI:SS') UPDATE_DATE 
+      , TO_CHAR(R.UDFD12,'DD.MM.YYYY HH24:MI:SS') CANCEL_DATE      
+      , R.GUARANTEE_CODE 
+      , R.UDFC37 ML_B
+      , R.UDFC38 ML_L
+      , R.UDFC39 ML_D
+ , SO.UDFC21 AGENT
+ , R.RESV_NAME_ID,TRAIN.ALB_GET_RES_DT(R.RESORT,R.RESV_NAME_ID) RES_DT 
+ , TRAIN.ALB_GET_FIX_RATE(R.RESORT,R.RESV_NAME_ID) FIX 
+ , EN.CHILDREN1 C1 , EN.CHILDREN2 C2, EN.CHILDREN3 C3, EN.CHILDREN4 C4, EN.CHILDREN5 C5  
+ , TO_DATE(:1,'DD.MM.YYYY HH24:MI:SS') UPDATETIME
+ 
+ FROM OPERA.RESERVATION_NAME R   JOIN OPERA.NAME N ON N.NAME_ID = R.NAME_ID  
+ JOIN OPERA.RESERVATION_DAILY_ELEMENT_NAME EN ON EN.RESORT = R.RESORT       
+   AND EN.RESV_NAME_ID=R.RESV_NAME_ID AND EN.RESERVATION_DATE = R.TRUNC_BEGIN_DATE  
+ LEFT JOIN OPERA.NAME_ADDRESS A ON A.ADDRESS_ID = R.ADDRESS_ID  
+ LEFT JOIN OPERA.NAME SO ON SO.NAME_ID = EN.SOURCE_ID  
+ LEFT JOIN OPERA.RESERVATION_DAILY_ELEMENTS E ON E.RESORT = R.RESORT AND E.RESERVATION_DATE = R.TRUNC_BEGIN_DATE    
+    AND E.RESV_DAILY_EL_SEQ = EN.RESV_DAILY_EL_SEQ 
+ LEFT JOIN OPERA.RESORT$_ROOM_CATEGORY RT ON RT.RESORT = R.RESORT AND RT.ROOM_CATEGORY = E.ROOM_CATEGORY 
+ LEFT JOIN OPERA.RESORT$_ROOM_CATEGORY RTC ON RTC.RESORT = R.RESORT AND RTC.ROOM_CATEGORY = E.BOOKED_ROOM_CATEGORY 
+ LEFT JOIN OPERA.APPLICATION$_USER U ON U.APP_USER_ID = R.INSERT_USER 
+ WHERE NVL(RT.PSEUDO_YN ,'N')='N'
+ AND (EN.ADULTS + EN.CHILDREN > 0) 
+ AND R.TRUNC_BEGIN_DATE >= TO_DATE('01032021','DDMMYYYY')
+ AND R.TRUNC_BEGIN_DATE <= TO_DATE('31122021','DDMMYYYY')
+ AND R.RESORT = :2
+ AND (SO.COMPANY LIKE 'ONLINE%'
+        OR SO.COMPANY LIKE 'MNG%'
+        OR SO.COMPANY LIKE 'CALL%'
+        OR SO.COMPANY LIKE 'BOOKING%'
+)
+'''
+#  AND R.TRUNC_END_DATE > TO_DATE('01032021','DDMMYYYY')
+#:UPDATETIME
+#:HOT
+
+ #, ROUND(TRAIN.ALB_GET_RES_BILL_ADV_EXT(R.RESORT,R.RESV_NAME_ID),2) BILLadv_BGN
+ #, ROUND(TRAIN.ALB_GET_RES_BILL_EXT(R.RESORT,R.RESV_NAME_ID),2) BILLex_BGN
+ #, ROUND(TRAIN.ALB_GET_RES_DEPOSIT(R.RESORT,R.RESV_NAME_ID),2) DEP_BGN
+
+
+
+
+sql1 = '''
+update TRAIN.ALB_ONLINE_LASTUPDATE set UPDATETIME = TO_DATE(:1,'DD.MM.YYYY HH24:MI:SS'), donetime = current_date where RESORT = :2
+'''
+
+sql2 = '''
+delete from TRAIN.ALB_ONLINE where UPDATETIME < TO_DATE(:1,'DD.MM.YYYY HH24:MI:SS') and RESORT = :2
+'''
+
+c = conn.cursor()
+
+for h in HOTELS:
+
+
+    c.execute(sql, ( UPDATETIME, h ) )
+    conn.commit()
+
+    c.execute(sql1,  (UPDATETIME, h)  )
+    conn.commit()
+
+    c.execute(sql2, ( UPDATETIME, h) )
+    conn.commit()
+pass
+
+
+
+
+
+
+
+
+XXX='''
+
+  INSERT
+        INTO TRAIN.ALB_OCCUPANCY_RATE_JURNAL ( ISSUE_DATE,RESORT,ROOM_CLASS,SOURCE_ID,TRAVEL_AGENT_ID,RESERVATION_DATE,MARKET,ROOMS,PAX, EURO, RATE_CODE ) 
+        SELECT TRUNC( CURRENT_DATE, 'DD')     ISSUE_DATE
+              ,RESORT,ROOM_CLASS,SOURCE_ID,TRAVEL_AGENT_ID,RESERVATION_DATE
+              ,NVL(MAX(S.UDFC22),'XXX') MARKET
+              ,SUM(ROOMS) ROOMS,SUM(PAX) PAX, SUM(EURO) EURO 
+		  ,NVL(RATE_CODE,'X') RATE_CODE
+        FROM 
+        (
+          SELECT 
+             E.RESORT RESORT
+           , T.ROOM_CLASS ROOM_CLASS
+           , NVL(MAX(EN.SOURCE_ID),0) SOURCE_ID
+           , NVL(MAX(EN.TRAVEL_AGENT_ID),0) TRAVEL_AGENT_ID
+           , E.RESERVATION_DATE  RESERVATION_DATE   
+           , MAX(E.PHYSICAL_QUANTITY) ROOMS    
+           , SUM(EN.ADULTS+EN.CHILDREN) PAX
+           , SUM(case when EN.CURRENCY_CODE='BGN' THEN EN.share_amount/1.95583 
+                    when EN.CURRENCY_CODE='GBP' THEN EN.share_amount * 2.2 /1.99583 
+                    ELSE EN.share_amount END
+                ) EURO
+	     , MAX(EN.RATE_CODE) RATE_CODE
+          FROM OPERA.RESERVATION_DAILY_ELEMENT_NAME EN 
+          JOIN OPERA.RESERVATION_DAILY_ELEMENTS E ON E.RESORT=EN.RESORT AND E.RESERVATION_DATE=EN.RESERVATION_DATE AND E.RESV_DAILY_EL_SEQ=EN.RESV_DAILY_EL_SEQ
+          JOIN OPERA.RESERVATION_NAME R ON R.RESORT=EN.RESORT AND R.RESV_NAME_ID = EN.RESV_NAME_ID
+          JOIN OPERA.RESORT RS ON RS.RESORT = EN.RESORT
+          JOIN OPERA.RESORT$_ROOM_CATEGORY T ON T.RESORT = EN.RESORT AND T.ROOM_CATEGORY = E.ROOM_CATEGORY
+          WHERE T.ROOM_CLASS <> 'P'
+            AND NVL(E.DUE_OUT_YN,'N')='N'
+            AND E.RESERVATION_DATE BETWEEN TO_DATE('01122020' ,'DDMMYYYY')  AND TO_DATE('31122021' ,'DDMMYYYY')  
+            AND RS.STATE in (
+			'ALB','WLA','PRI'
+--			,'ANZ'
+		)            
+		AND E.RESV_STATUS NOT IN ('CANCELLED','WAITLIST','NO SHOW')
+            AND NVL(R.UDFD15,E.INSERT_DATE) <= TRUNC( CURRENT_DATE, 'DD')    
+          GROUP BY  E.RESORT,T.ROOM_CLASS,E.RESERVATION_DATE, E.RESV_DAILY_EL_SEQ
+        ) X
+        LEFT JOIN OPERA.NAME S ON S.NAME_ID = X.SOURCE_ID
+        GROUP BY RESORT,ROOM_CLASS,SOURCE_ID,TRAVEL_AGENT_ID,RESERVATION_DATE, RATE_CODE
+;
+COMMIT
+;    
+    INSERT
+    INTO TRAIN.ALB_TRENDS
+      (
+        THE_DATE,
+        NEW_OVNTS,
+        NEW_AMOUNT
+      )
+     SELECT current_date-1, SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date,'DD')  THEN PAX ELSE 0 END)
+        - SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date-1,'DD')  THEN PAX ELSE 0 END) OVNTS
+      , ROUND(SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date,'DD')  THEN EURO ELSE 0 END)
+        - SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date-1,'DD')  THEN EURO ELSE 0 END),2) AMOUNT_EURO
+      FROM TRAIN.ALB_OCCUPANCY_RATE_JURNAL J
+      join OPERA.RESORT R ON J.RESORT=R.RESORT
+      WHERE ISSUE_DATE between current_date - 2 and current_date
+      AND j.reservation_date > TO_DATE('01.12.2020','DD.MM.YYYY')
+      AND R.STATE='ALB'
+      HAVING
+              SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date,'DD')  THEN PAX ELSE 0 END)
+              -SUM(CASE WHEN TRUNC(ISSUE_DATE,'DD') = TRUNC(current_date-1,'DD')  THEN PAX ELSE 0 END)  
+              <>0
+    ;
+    COMMIT;
+ 
+
+
+'''
+
+

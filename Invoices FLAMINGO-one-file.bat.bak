@@ -1,0 +1,4 @@
+E:
+cd c:\ivanm\PYXLS\
+py FLAMINGO-TOURS-INVOICES.py
+

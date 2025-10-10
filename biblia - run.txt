@@ -1,0 +1,22 @@
+d:
+cd biblia
+cd venv
+cd scripts
+activate
+cd..
+cd..
+cd biblia
+python manage.py runserver
+
+
+
+
+
+
+
+
+
+
+
+
+

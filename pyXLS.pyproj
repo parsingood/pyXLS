@@ -4,13 +4,14 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>7c70fc26-5398-4fe9-a9e4-9d487571c6a2</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>pyXLS.py</StartupFile>
+    <StartupFile>from-clock-api.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>pyXLS</Name>
     <RootNamespace>pyXLS</RootNamespace>
+    <IsWindowsApplication>False</IsWindowsApplication>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,7 +22,21 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="newYear.py" />
+    <Compile Include="report.py" />
+    <Compile Include="occupTrendByHotels.py" />
+    <Compile Include="ONLINE_RESV_FILL.py" />
+    <Compile Include="oracle.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FLAMINGO-TOURS-INVOICES.py" />
+    <Compile Include="occupTrend.py" />
     <Compile Include="pyXLS.py" />
+    <Compile Include="resv_compare_opera_sejour.py" />
+    <Compile Include="SendEmail.py" />
+    <Compile Include="update_roomtypes_from_sejour.py">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
