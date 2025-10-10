@@ -19,7 +19,7 @@ custom_env["TNS_ADMIN"] = r"C:\app\Ivanm\product\11.2.0\client_1\network\admin"
 custom_env["PATH"] += r";C:\app\Ivanm\product\11.2.0\client_1\bin"
 
 # Хотели
-hotels = [
+hotels = ['KDM',
     'GER', 'MRA', 'SLA', 'ELI', 'NON', 'BOR', 'LAB', 'LAM', 'LAG',
     'KLP', 'ARB', 'KLK', 'DTC', 'ORL', 'MAL', 'DOR', 'DRU', 'OAS', 'FLG',
     'FLA', 'OR1', 'OR2', 'MAG', 'SUP', 'RAL', 'VIT', 'KOM', 'ALT', 'KPS',
