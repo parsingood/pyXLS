@@ -71,7 +71,7 @@ print('Started at '+ datetime.datetime.now().strftime("%A, %d.%m.%Y %X") +'\n')
 
 # Четем аргументите
 parser = argparse.ArgumentParser(
-    description="Справка за нощувките - общ брой към дадена дата или изменението им от определени дни назад до дадена дата",
+    description="Справка за нощувките/стаите/парите - общ брой към дадена дата или изменението им от определени дни назад до дадена дата",
     epilog="""Примери: 
     py overnights_months.py --date 2025-04-09 date1 --back 1
     py overnights_months.py --back 1 
@@ -89,12 +89,46 @@ parser.add_argument('--year1', type=str, help="Година за дата1 (пр
 parser.add_argument('--year2', type=str, help="Година за дата2 (примерно 2024 или 2023), last - миналата година")
 parser.add_argument('--email', type=str, help="Имели на които да се праща --email mtodorova@albena.bg;velina.gyumova@albena.bg;ivanm@albena.bg;maya.lazarova@albena.bg;marinela.tsaneva@albena.bg")
 parser.add_argument('--file', type=str, help="test")
+parser.add_argument('--pax_rooms_euro', type=str, help="Какво вадим - pax or room or euro")
+parser.add_argument('--from', dest='month_from', type=int, help="Начален месец (1-12)")
+parser.add_argument('--to', dest='month_to', type=int, help="Краен месец (1-12)")
 
 args = parser.parse_args()
 
 # Дати за днес и вчера
 today = datetime.date.today()
 yesterday = None #today - datetime.timedelta(days=1)
+year_this = today.year  # това е текущата година, по подразбиране
+
+# ---- Параметри за периода ----
+# По подразбиране от март до ноември
+month_from = args.month_from if args.month_from and 1 <= args.month_from <= 12 else 3
+month_to = args.month_to if args.month_to and 1 <= args.month_to <= 12 else 11
+
+# Начало и край на периода
+month_day_from = (month_from, 1)
+# Последен ден на крайния месец
+last_day = (datetime.date(year_this, month_to % 12 + 1, 1) - datetime.timedelta(days=1)).day
+month_day_till = (month_to, last_day)
+
+
+
+if args.pax_rooms_euro=='rooms':
+    pax_rooms_euro='rooms'
+    title1="Стаи*дни"
+    title2="стаи*дни"
+    
+elif args.pax_rooms_euro=='euro':
+    pax_rooms_euro='euro'
+    title1="Приходи(euro)"
+    title2="приходи(euro)"
+    
+else:
+    pax_rooms_euro='pax'
+    title1="Нощувки"
+    title2="нощувки"
+
+
 
 
 # Имели на които да се праща
@@ -176,12 +210,6 @@ if args.back:
 cx_Oracle.init_oracle_client(lib_dir = r"C:\app\instantclient_19_19")
 dsn_tns = cx_Oracle.makedsn('10.10.21.33', '1521', service_name='opera') 
 
-# Основни параметри за периода
-month_day_from = (3, 1)     # (месец, ден) - начало
-month_day_till = (11, 30)   # (месец, ден) - край
-
-year_this = today.year  # това е текущата година, по подразбиране
-
 if args.year1:
     
     if args.year1 == "this":
@@ -260,9 +288,13 @@ if "market" in report_by or "markets" in report_by:
 else:
     TourOperatorSelector = 'OCC.TourOperator'   
 
-# ---- Параметри за периода ----
-month_day_from = (3, 1)     # Начало на сезона (март)
-month_day_till = (11, 30)   # Край на сезона (ноември)
+def get_month_headers():
+    """Генерира списък с месечни колони според избрания диапазон."""
+    headers = [f"{title1}"]
+    for m in range(month_day_from[0], month_day_till[0] + 1):
+        headers.append(datetime.date(1900, m, 1).strftime('%b').upper())
+    return headers
+
 
 def generate_sheet_from_data(workbook, sheet_name, title, all_data, 
     key, key1=None, key2=None, headers_base=None, num_data_columns=10):
@@ -314,7 +346,7 @@ def load_all_data(sqls, hotels_str, key_columns_count):
 
 def generate_sql(today, yesterday, date_from, date_till, tour_operator_selector, for_hotels=False, for_touroperators=False, for_both=False):
     month_columns = []
-    for month in range(3, 12):
+    for month in range(month_day_from[0], month_day_till[0] + 1):
         start_date = datetime.datetime(date_from.year, month, 1)
         end_date = (datetime.datetime(date_from.year, month + 1, 1) - datetime.timedelta(days=1)) if month < 12 else datetime.datetime(date_from.year, 12, 31)
         month_name = start_date.strftime('%b').upper()
@@ -398,7 +430,7 @@ def generate_sql(today, yesterday, date_from, date_till, tour_operator_selector,
         SELECT TourOperator, RESORT, the_date, reservation_date, SUM(paxrooms) paxrooms
         FROM (
             SELECT resort, SR.COMPANY TourOperator, e.reservation_date, e.ISSUE_DATE the_date,
-                   SUM(e.pax) paxrooms
+                   SUM(e.{pax_rooms_euro}) paxrooms
             FROM train.ALB_OCCUPANCY_RATE_JURNAL e
             LEFT JOIN OPERA.NAME SR ON E.SOURCE_ID = SR.NAME_ID
             WHERE
@@ -460,7 +492,17 @@ def safe_write(worksheet, row, col, value, cell_format=None):
             # Ако няма формат - оставяме празно
             worksheet.write(row, col, "")
     else:
-        worksheet.write(row, col, value, cell_format)
+        if isinstance(value, (int, float)):
+            # Форматираме числата като цели с разделител за хиляди (интервал)
+            formatted_value = f"{int(round(value)):,}".replace(",", " ")
+            worksheet.write(row, col, formatted_value, cell_format)
+        else:
+            worksheet.write(row, col, value, cell_format)
+
+
+
+
+
 
 def auto_adjust_column_widths(worksheet, widths_dict, min_width=8, max_width=40):
     """
@@ -488,7 +530,13 @@ def generate_sheet_combined(workbook, sheet_name, title, all_keys,
     cr += 2
 
     # Заглавия на колоните
-    month_headers = ["Нощувки", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV"]
+    # month_headers = [f"{title1}", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV"]
+    month_headers = get_month_headers()
+
+    num_data_columns = len(month_headers)
+    
+    
+    
     headers = headers_base.copy()
     if add_date_column:
         headers.insert(0, "Към Дата")
@@ -648,13 +696,14 @@ for hotel_list in HOTELS:
     # заглавия
     if yesterday:
         if (today - yesterday).days == 1:
-            title_base = f"Движение през {yesterday.strftime('%d.%m')} на нощувки"
+            title_base = f"Движение през {yesterday.strftime('%d.%m')} на {title2}"
         else:
             title_base = f"Движение в интервала {yesterday.strftime('%d.%m')}-{(today - datetime.timedelta(days=1)).strftime('%d.%m')}"
     else:
-        title_base = f"Нощувки до {today.strftime('%d.%m.%Y')}"
+        title_base = f"{title1} до {today.strftime('%d.%m.%Y')}"
 
-    title_full = f"{title_base} за периода {month_day_from[0]:02d}.{month_day_from[1]:02d}-{month_day_till[0]:02d}.{month_day_till[1]:02d}.{year_this} в {hotel_list[1]}"
+    # title_full = f"{title_base} за периода {month_day_from[1]:02d}.{month_day_from[0]:02d}-{month_day_till[1]:02d}.{month_day_till[0]:02d}.{year_this} в {hotel_list[1]}"
+    title_full = f"{title_base} за периода {month_day_from[1]:02d}.{month_day_from[0]:02d}-{month_day_till[1]:02d}.{month_day_till[0]:02d}.{year_this} ({datetime.date(1900, month_day_from[0], 1).strftime('%b').upper()}–{datetime.date(1900, month_day_till[0], 1).strftime('%b').upper()}) в {hotel_list[1]}"
 
     print(f"\n▶️ Генерирам справка за {hotel_list[1]}...")
 
@@ -675,7 +724,8 @@ for hotel_list in HOTELS:
             key1='total1',
             key2='total2',
             headers_base=[],
-            num_data_columns=10
+            num_data_columns=len(get_month_headers())
+
         )
 
     if "hotel" in report_by or "hotels" in report_by:
@@ -695,7 +745,8 @@ for hotel_list in HOTELS:
             key1='hotels1',
             key2='hotels2',
             headers_base=['Хотел'],
-            num_data_columns=10
+            num_data_columns=len(get_month_headers())
+
         )
 
     if "market" in report_by or "markets" in report_by or "agent" in report_by or "agents" in report_by or "source" in report_by or "sources" in report_by:
@@ -714,7 +765,8 @@ for hotel_list in HOTELS:
             key1='touroperators1',
             key2='touroperators2',
             headers_base=['Туроператор'],
-            num_data_columns=10
+            num_data_columns=len(get_month_headers())
+
         )
 
 
@@ -736,7 +788,8 @@ for hotel_list in HOTELS:
             key1='full1',
             key2='full2',
             headers_base=['Хотел','Туроператор'],
-            num_data_columns=10
+            num_data_columns=len(get_month_headers())
+
         )
 
     print(f"✅ Справка за {hotel_list[1]} готова.")
@@ -758,7 +811,7 @@ if yesterday:
     else:
         period_text = f"Движение от {yesterday.strftime('%d.%m.%Y')} до {(today - datetime.timedelta(days=1)).strftime('%d.%m.%Y')}"
 else:
-    period_text = f"Нощувки към {today.strftime('%d.%m.%Y')}"
+    period_text = f"{title1} към {today.strftime('%d.%m.%Y')}"
 
 group_parts = []
 

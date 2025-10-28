@@ -57,9 +57,9 @@ THEDATE_SHORT = today.strftime("%d.%m.%y")
 
 month_day_from = (3,1) # (month, day)
 month_day_till = (10,31) # (month, day)
-first_week_day = (1,5) # (month, day)
-year_this = 2026
-year_last = 2025
+first_week_day = (1,6) # (month, day)
+year_this = 2025
+year_last = 2024
 year_other = 2019
 HOTELS = [('''
 'DDJ', 'GER', 'MRA', 'SLA', 'ELI', 'NON', 'BOR', 'LAB', 'LAM', 'LAG', 

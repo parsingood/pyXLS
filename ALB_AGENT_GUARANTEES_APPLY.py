@@ -32,22 +32,46 @@ BEGIN
 FOR X IN (
             select * from TRAIN.ALB_AGENT_GUARANTEES
             WHERE ACTIVE_YN = 'Y'
-            AND CURRENT_DATE + TRUNC(RELEASE_DAYS) < DATE_TILL 
+            AND (
+             (X.RELEASE_DATE IS NULL AND CURRENT_DATE + NVL(X.RELEASE_DAYS,0) < DATE_TILL)
+             OR (X.RELEASE_DATE IS NOT NULL AND CURRENT_DATE < X.RELEASE_DATE)
+            )        
+            
             ORDER BY ID
 ) 
 LOOP
 
-  NEW_DATE_FROM :=  TRUNC(CURRENT_DATE,'DD') + TRUNC(X.RELEASE_DAYS);
-  
-  IF NEW_DATE_FROM < X.DATE_FROM  THEN 
-    NEW_DATE_FROM := X.DATE_FROM;
-  END IF;
-  
-  IF X.RELEASE_DAYS > 0 AND X.RELEASE_DAYS < 1 THEN
-    IF (CURRENT_DATE - TRUNC(CURRENT_DATE)) >= X.RELEASE_DAYS THEN
-      NEW_DATE_FROM := NEW_DATE_FROM + 1;
+    IF X.RELEASE_DATE IS NOT NULL THEN
+      -- ако има зададена дата, тя е водеща
+      NEW_DATE_FROM := TRUNC(X.RELEASE_DATE);
+
+    ELSE
+      -- ако няма дата, използваме броя дни (може да е дробен)
+      IF X.RELEASE_DAYS IS NOT NULL THEN
+        NEW_DATE_FROM := TRUNC(CURRENT_DATE,'DD') + TRUNC(X.RELEASE_DAYS);
+
+        -- ако е дробен брой дни (примерно 0.25 = 6:00 сутринта, 0.5 = обяд и т.н.)
+        IF X.RELEASE_DAYS > 0 AND X.RELEASE_DAYS < 1 THEN
+          IF (CURRENT_DATE - TRUNC(CURRENT_DATE)) >= X.RELEASE_DAYS THEN
+            NEW_DATE_FROM := NEW_DATE_FROM + 1;
+          END IF;
+        END IF;
+      ELSE
+        -- ако и двете (RELEASE_DATE и RELEASE_DAYS) са NULL — пропускаме
+        CONTINUE;
+      END IF;
     END IF;
-  END IF;
+
+    -- защита: релийзът не може да е преди началната дата
+    IF NEW_DATE_FROM < X.DATE_FROM THEN
+      NEW_DATE_FROM := X.DATE_FROM;
+    END IF;
+
+    -- защита: ако релийзът е след крайната дата — няма смисъл, пропускаме
+    IF NEW_DATE_FROM > X.DATE_TILL THEN
+      CONTINUE;
+    END IF;
+
 
   NEW_CURRENT_DATE := CURRENT_DATE;
   IF   NEW_CURRENT_DATE <= OLD_CURRENT_DATE + 2 /24/60/60 THEN
