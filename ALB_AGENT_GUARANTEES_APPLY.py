@@ -30,12 +30,13 @@ BEGIN
   OLD_CURRENT_DATE := CURRENT_DATE;
 
 FOR X IN (
-            select * from TRAIN.ALB_AGENT_GUARANTEES
+            select * 
+            from TRAIN.ALB_AGENT_GUARANTEES
             WHERE ACTIVE_YN = 'Y'
             AND (
-             (X.RELEASE_DATE IS NULL AND CURRENT_DATE + NVL(X.RELEASE_DAYS,0) < DATE_TILL)
-             OR (X.RELEASE_DATE IS NOT NULL AND CURRENT_DATE < X.RELEASE_DATE)
-            )        
+                 (RELEASE_DATE IS NULL AND CURRENT_DATE + NVL(RELEASE_DAYS,0) < DATE_TILL)
+                 OR (RELEASE_DATE IS NOT NULL AND CURRENT_DATE < RELEASE_DATE)
+                )     
             
             ORDER BY ID
 ) 
